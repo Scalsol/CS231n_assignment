@@ -191,6 +191,10 @@ class FullyConnectedNet(object):
                 output_units = hidden_dims[layer]
             self.params['W%d' % (layer + 1)] = np.random.randn(input_units, output_units) * weight_scale
             self.params['b%d' % (layer + 1)] = np.zeros(output_units)
+            if self.use_batchnorm:
+                if layer + 1 != self.num_layers:
+                    self.params['gamma%d' % (layer + 1)] =np.ones(output_units)
+                    self.params['beta%d' % (layer + 1)] = np.zeros(output_units)
         pass
         ############################################################################
         #                             END OF YOUR CODE                             #
@@ -255,7 +259,13 @@ class FullyConnectedNet(object):
             if layer + 1 == self.num_layers:
                 x, caches[layer]= affine_forward(x, self.params['W%d' % (layer + 1)], self.params['b%d' % (layer + 1)])
             else:
-                x, caches[layer] = affine_relu_forward(x, self.params['W%d' % (layer + 1)], self.params['b%d' % (layer + 1)])
+                if not self.use_batchnorm:
+                    x, caches[layer] = affine_relu_forward(x, self.params['W%d' % (layer + 1)], self.params['b%d' % (layer + 1)])
+                else:
+                    x, caches[layer] = affine_bn_relu_forward(x, self.params['W%d' % (layer + 1)],
+                                                              self.params['b%d' % (layer + 1)],
+                                                              self.params['gamma%d' % (layer + 1)],
+                                                              self.params['beta%d' % (layer + 1)], self.bn_params[layer])
         scores = x
         pass
         ############################################################################
@@ -290,7 +300,10 @@ class FullyConnectedNet(object):
                 dup, grads['W%d' % layer], grads['b%d' % layer] = affine_backward(dscores, caches[layer - 1])
                 grads['W%d' % layer] += self.reg * self.params['W%d' % layer]
             else:
-                dup, grads['W%d' % layer], grads['b%d' % layer] = affine_relu_backward(dup, caches[layer - 1])
+                if not self.use_batchnorm:
+                    dup, grads['W%d' % layer], grads['b%d' % layer] = affine_relu_backward(dup, caches[layer - 1])
+                else:
+                    dup, grads['W%d' % layer], grads['b%d' % layer], grads['gamma%d' % layer], grads['beta%d' %layer] = affine_bn_relu_backward(dup, caches[layer - 1])
                 grads['W%d' % layer] += self.reg * self.params['W%d' % layer]
         pass
         ############################################################################
