@@ -254,6 +254,7 @@ class FullyConnectedNet(object):
         # layer, etc.                                                              #
         ############################################################################
         caches = {}
+        drop_caches = {}
         x = X.copy()
         for layer in range(self.num_layers):
             if layer + 1 == self.num_layers:
@@ -266,6 +267,8 @@ class FullyConnectedNet(object):
                                                               self.params['b%d' % (layer + 1)],
                                                               self.params['gamma%d' % (layer + 1)],
                                                               self.params['beta%d' % (layer + 1)], self.bn_params[layer])
+                if self.use_dropout:
+                    x, drop_caches[layer] = dropout_forward(x, self.dropout_param)
         scores = x
         pass
         ############################################################################
@@ -300,6 +303,8 @@ class FullyConnectedNet(object):
                 dup, grads['W%d' % layer], grads['b%d' % layer] = affine_backward(dscores, caches[layer - 1])
                 grads['W%d' % layer] += self.reg * self.params['W%d' % layer]
             else:
+                if self.use_dropout:
+                    dup = dropout_backward(dup, drop_caches[layer - 1])
                 if not self.use_batchnorm:
                     dup, grads['W%d' % layer], grads['b%d' % layer] = affine_relu_backward(dup, caches[layer - 1])
                 else:
