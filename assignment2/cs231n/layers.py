@@ -395,23 +395,16 @@ def conv_forward_naive(x, w, b, conv_param):
     stride = conv_param['stride']
     pad = conv_param['pad']
     N, C, H, W = x.shape
-    F, C, HH, WW = w.shape
+    F, _, HH, WW = w.shape
     H_out = 1 + (H + 2 * pad - HH) // stride
     W_out = 1 + (W + 2 * pad - WW) // stride
     out = np.zeros([N, F, H_out, W_out])
     x_pad = np.pad(x, ((0, 0), (0, 0), (pad, pad), (pad, pad)), 'constant')
-    for n in range(N):
-        for i in range(H_out):
-            for j in range(W_out):
-                out[n, :, i, j] = b
-    for n in range(N):
-        for f in range(F):
-            for c in range(C):
-                for i in range(H_out):
-                    ii = i * stride
-                    for j in range(W_out):
-                        jj = j * stride
-                        out[n, f, i, j] += np.sum(x_pad[n, c, ii:(ii + HH), jj:(jj + WW)] * w[f, c])
+    for i in range(H_out):
+        ii = i * stride
+        for j in range(W_out):
+            jj = j * stride
+            out[:, :, i, j] = np.tensordot(x_pad[:, :, ii:(ii + HH), jj:(jj + WW)], w, axes=([1, 2, 3], [1, 2, 3])) + b
     pass
     ###########################################################################
     #                             END OF YOUR CODE                            #
@@ -441,23 +434,20 @@ def conv_backward_naive(dout, cache):
     stride = conv_param['stride']
     pad = conv_param['pad']
     N, C, H, W = x.shape
-    F, C, HH, WW = w.shape
+    F, _, HH, WW = w.shape
     H_out = 1 + (H + 2 * pad - HH) // stride
     W_out = 1 + (W + 2 * pad - WW) // stride
     x_pad = np.pad(x, ((0, 0), (0, 0), (pad, pad), (pad, pad)), 'constant')
     dx_pad = np.zeros(x_pad.shape)
     dw = np.zeros(w.shape)
     db = np.zeros(b.shape)
-    for n in range(N):
-        for i in range(H_out):
-            ii = i * stride
-            for j in range(W_out):
-                for f in range(F):
-                    for c in range(C):
-                        jj = j * stride
-                        dw[f, c] += dout[n, f, i, j] * x_pad[n, c, ii:(ii + HH), jj:(jj + WW)]
-                        dx_pad[n, c, ii:(ii + HH), jj:(jj + WW)] += dout[n, f, i, j] * w[f, c]
-                db += dout[n, :, i, j]
+    for i in range(H_out):
+        ii = i * stride
+        for j in range(W_out):
+            jj = j * stride
+            dw += np.tensordot(dout[:, :, i, j], x_pad[:, :, ii:(ii + HH), jj:(jj + WW)], axes=([0], [0]))
+            dx_pad[:, :, ii:(ii + HH), jj:(jj + WW)] += np.tensordot(dout[:, :, i, j], w, axes=([1], [0]))
+            db += np.sum(dout[:, :, i, j], axis=0)
     dx = dx_pad[:, :, 1:(H + 2 * pad - 1), 1:(W + 2 * pad - 1)]
     pass
     ###########################################################################
@@ -485,20 +475,16 @@ def max_pool_forward_naive(x, pool_param):
     ###########################################################################
     # TODO: Implement the max pooling forward pass                            #
     ###########################################################################
-    pool_width = pool_param['pool_width']
-    pool_height = pool_param['pool_height']
-    stride = pool_param['stride']
+    pool_width, pool_height, stride = pool_param['pool_width'], pool_param['pool_height'], pool_param['stride']
     N, C, H, W = x.shape
     H_out = H // stride
     W_out = W // stride
     out = np.zeros([N, C, H_out, W_out])
-    for n in range(N):
-        for c in range(C):
-            for i in range(H_out):
-                ii = i * stride
-                for j in range(W_out):
-                    jj = j * stride
-                    out[n, c, i, j] += np.max(x[n, c, ii:(ii + pool_height), jj:(jj + pool_width)])
+    for i in range(H_out):
+        ii = i * stride
+        for j in range(W_out):
+            jj = j * stride
+            out[:, :, i, j] += np.max(x[:, :, ii:(ii + pool_height), jj:(jj + pool_width)], axis=(2, 3))
     pass
     ###########################################################################
     #                             END OF YOUR CODE                            #
@@ -530,15 +516,14 @@ def max_pool_backward_naive(dout, cache):
     H_out = H // stride
     W_out = W // stride
     dx = np.zeros([N, C, H, W])
-    for n in range(N):
-        for c in range(C):
-            for i in range(H_out):
-                ii = i * stride
-                for j in range(W_out):
-                    jj = j * stride
-                    x_tmp = x[n, c, ii:(ii + pool_height), jj:(jj + pool_width)]
-                    dx_tmp = dout[n, c, i, j] * (x_tmp == np.max(x_tmp))
-                    dx[n, c, ii:(ii + pool_height), jj:(jj + pool_width)] = dx_tmp
+    for i in range(H_out):
+        ii = i * stride
+        for j in range(W_out):
+            jj = j * stride
+            x_tmp = x[:, :, ii:(ii + pool_height), jj:(jj + pool_width)]
+            equal = (x_tmp == np.tile(np.max(x_tmp, axis=(2, 3)).reshape(N, C, 1, 1), (1, 1, pool_width, pool_height)))
+            dx_tmp = np.tile(dout[:, :, i, j].reshape(N, C, 1, 1), (1, 1, pool_width, pool_height)) * equal
+            dx[:, :, ii:(ii + pool_height), jj:(jj + pool_width)] = dx_tmp
     pass
     ###########################################################################
     #                             END OF YOUR CODE                            #
@@ -577,8 +562,42 @@ def spatial_batchnorm_forward(x, gamma, beta, bn_param):
     # version of batch normalization defined above. Your implementation should#
     # be very short; ours is less than five lines.                            #
     ###########################################################################
+    mode = bn_param['mode']
+    eps = bn_param.get('eps', 1e-5)
+    momentum = bn_param.get('momentum', 0.9)
+
     N, C, H, W = x.shape
 
+    axis = (0, 2, 3)
+
+    running_mean = bn_param.get('running_mean', np.zeros(C, dtype=x.dtype))
+    running_var = bn_param.get('running_var', np.zeros(C, dtype=x.dtype))
+
+    gamma_tile = np.tile(np.reshape(gamma, (C, 1, 1)), (1, H, W))
+    beta_tile = np.tile(np.reshape(beta, (C, 1, 1)), (1, H, W))
+
+    out, cache = None, None
+    if mode == 'train':
+        mean = np.mean(x, axis=axis)
+        mean_tile = np.tile(np.reshape(mean, (C, 1, 1)), (1, H, W))
+        variance = np.var(x, axis=axis)
+        var_tile = np.tile(np.reshape(variance, (C, 1, 1)), (1, H, W))
+        x_hat = (x - mean_tile) / (np.sqrt(var_tile + eps))
+        out = gamma_tile * x_hat + beta_tile
+        cache = (x, x_hat, gamma, beta, mean, variance, eps)
+
+        running_mean = momentum * running_mean + (1 - momentum) * mean
+        running_var = momentum * running_var + (1 - momentum) * variance
+    elif mode == 'test':
+        rm_tile = np.tile(np.reshape(running_mean, (C, 1, 1)), (1, H, W))
+        rv_tile = np.tile(np.reshape(running_var, (C, 1, 1)), (1, H, W))
+        x_hat = (x - rm_tile) / (np.sqrt(rv_tile + eps))
+        out = gamma_tile * x_hat + beta_tile
+    else:
+        raise ValueError('Invalid forward batchnorm mode "%s"' % mode)
+
+    bn_param['running_mean'] = running_mean
+    bn_param['running_var'] = running_var
     pass
     ###########################################################################
     #                             END OF YOUR CODE                            #
