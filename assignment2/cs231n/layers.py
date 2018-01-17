@@ -577,6 +577,8 @@ def spatial_batchnorm_forward(x, gamma, beta, bn_param):
     # version of batch normalization defined above. Your implementation should#
     # be very short; ours is less than five lines.                            #
     ###########################################################################
+    N, C, H, W = x.shape
+
     pass
     ###########################################################################
     #                             END OF YOUR CODE                            #
@@ -607,6 +609,22 @@ def spatial_batchnorm_backward(dout, cache):
     # version of batch normalization defined above. Your implementation should#
     # be very short; ours is less than five lines.                            #
     ###########################################################################
+    N, C, H, W = dout.shape
+    (x, x_hat, gamma, beta, mean, variance, eps) =cache
+    gamma_tile = np.tile(np.reshape(gamma, (C, 1, 1)), (1, H, W))
+    mean_tile = np.tile(np.reshape(mean, (C, 1, 1)), (1, H, W))
+    var_tile = np.tile(np.reshape(variance, (C, 1, 1)), (1, H, W))
+
+    dx_hat = dout * gamma_tile
+    dvar = np.sum(dx_hat * (x - mean_tile) * (-0.5) * np.power(var_tile + eps, -1.5), axis=(0, 2, 3))
+    dvar_tile = np.tile(np.reshape(dvar, (C, 1, 1)), (1, H, W))
+    dmean = np.sum(dx_hat * (-1) / np.sqrt(var_tile + eps), axis=(0, 2, 3))
+    dmean_tile = np.tile(np.reshape(dmean, (C, 1, 1)), (1, H, W))
+
+    dx = dx_hat / np.sqrt(var_tile + eps) + dvar_tile * 2 * (x - mean_tile) / (x.shape[0] * x.shape[2] * x.shape[3]) + dmean_tile / (x.shape[0] * x.shape[2] * x.shape[3])
+
+    dgamma = np.sum(dout * x_hat, axis=(0, 2, 3))
+    dbeta = np.sum(dout, axis=(0, 2, 3))
     pass
     ###########################################################################
     #                             END OF YOUR CODE                            #
