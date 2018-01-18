@@ -137,6 +137,7 @@ class CaptioningRNN(object):
         # defined above to store loss and gradients; grads[k] should give the      #
         # gradients for self.params[k].                                            #
         ############################################################################
+        h0 =
         pass
         ############################################################################
         #                             END OF YOUR CODE                             #
