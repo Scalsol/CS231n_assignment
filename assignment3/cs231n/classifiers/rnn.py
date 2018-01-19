@@ -240,7 +240,7 @@ class CaptioningRNN(object):
                 this_word = np.argmax(scores.reshape(scores.shape[0], scores.shape[2]), axis=1)
                 captions[:, count] = this_word
                 prev_h = next_h
-                word_embedding_now = word_embedding_forward(this_word, W_embed)
+                word_embedding_now, _ = word_embedding_forward(this_word, W_embed)
         else:
             prev_c = np.zeros(prev_h.shape)
             while count < max_length - 1:
