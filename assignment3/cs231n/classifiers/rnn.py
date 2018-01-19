@@ -139,13 +139,24 @@ class CaptioningRNN(object):
         ############################################################################
         h0 = features.dot(W_proj) + b_proj
         word_embedding, we_cache = word_embedding_forward(captions_in, W_embed)
-        h, rnn_cache = rnn_forward(word_embedding, h0, Wx, Wh, b)
-        scores, affine_cache = temporal_affine_forward(h, W_vocab, b_vocab)
-        loss, dscores = temporal_softmax_loss(scores, captions_out, mask)
 
-        dh, dW_vocab, db_vocab= temporal_affine_backward(dscores, affine_cache)
-        dword_embedding, dh0, dWx, dWh, db = rnn_backward(dh, rnn_cache)
+        if self.cell_type == 'rnn':
+            h, rnn_cache = rnn_forward(word_embedding, h0, Wx, Wh, b)
+            scores, affine_cache = temporal_affine_forward(h, W_vocab, b_vocab)
+            loss, dscores = temporal_softmax_loss(scores, captions_out, mask)
+
+            dh, dW_vocab, db_vocab= temporal_affine_backward(dscores, affine_cache)
+            dword_embedding, dh0, dWx, dWh, db = rnn_backward(dh, rnn_cache)
+        else:
+            h, lstm_cache = lstm_forward(word_embedding, h0, Wx, Wh, b)
+            scores, affine_cache = temporal_affine_forward(h, W_vocab, b_vocab)
+            loss, dscores = temporal_softmax_loss(scores, captions_out, mask)
+
+            dh, dW_vocab, db_vocab= temporal_affine_backward(dscores, affine_cache)
+            dword_embedding, dh0, dWx, dWh, db = lstm_backward(dh, lstm_cache)
+
         dW_embed = word_embedding_backward(dword_embedding, we_cache)
+
         grads['W_vocab'], grads['b_vocab'] = dW_vocab, db_vocab
         grads['Wx'], grads['Wh'], grads['b'] = dWx, dWh, db
         grads['W_embed'] = dW_embed
@@ -213,6 +224,35 @@ class CaptioningRNN(object):
         # functions; you'll need to call rnn_step_forward or lstm_step_forward in #
         # a loop.                                                                 #
         ###########################################################################
+        h0 = features.dot(W_proj) + b_proj
+        prev_h = h0
+        this_word = np.ones([N], dtype=np.int64) * self._start
+        word_embedding_now, _ = word_embedding_forward(this_word, W_embed)
+        count = 0
+        captions[:, count] = this_word
+
+        if self.cell_type == 'rnn':
+            while count < max_length - 1:
+                count += 1
+                next_h, _ = rnn_step_forward(word_embedding_now, prev_h, Wx, Wh, b)
+                next_h_reshape = next_h.reshape(next_h.shape[0], 1, next_h.shape[1])
+                scores, _ = temporal_affine_forward(next_h_reshape, W_vocab, b_vocab)
+                this_word = np.argmax(scores.reshape(scores.shape[0], scores.shape[2]), axis=1)
+                captions[:, count] = this_word
+                prev_h = next_h
+                word_embedding_now = word_embedding_forward(this_word, W_embed)
+        else:
+            prev_c = np.zeros(prev_h.shape)
+            while count < max_length - 1:
+                count += 1
+                next_h, next_c, _ = lstm_step_forward(word_embedding_now, prev_h, prev_c, Wx, Wh, b)
+                next_h_reshape = next_h.reshape(next_h.shape[0], 1, next_h.shape[1])
+                scores, _ = temporal_affine_forward(next_h_reshape, W_vocab, b_vocab)
+                this_word = np.argmax(scores.reshape(scores.shape[0], scores.shape[2]), axis=1)
+                captions[:, count] = this_word
+                prev_h = next_h
+                prev_c = next_c
+                word_embedding_now, _ = word_embedding_forward(this_word, W_embed)
         pass
         ############################################################################
         #                             END OF YOUR CODE                             #
